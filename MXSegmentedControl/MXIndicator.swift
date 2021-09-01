@@ -40,13 +40,13 @@ public class MXIndicator: UIView {
     /// The indicator line view.
     public let lineView = UIView()
     
-    public var linePosition = Position.bottom
+    public var linePosition: Position = .bottom
     
     /// The indicator box view.
     public let boxView = UIView()
     
-    /// The line height value.
-    public var lineHeight: CGFloat = 1
+    /// The line size value.
+    public internal(set) var lineSize: CGSize = .init(width: 0, height: 1)
     
     /// :nodoc:
     required public init?(coder aDecoder: NSCoder) {
@@ -74,25 +74,16 @@ public class MXIndicator: UIView {
     override public func layoutSubviews() {
         super.layoutSubviews()
         
-        var frame = self.bounds //container.inset(by: margin)
-        //UIEdgeInsetsInsetRect(bounds, contentEdgeInsets)
+        let frame = self.bounds.inset(by: contentEdgeInsets)
+        boxView.frame = frame
         
-        if linePosition == .top {
-            
-            lineView.frame = CGRect(x: 0, y: 0, width: frame.width, height: lineHeight)
-            
-            frame.origin.y = lineHeight
-            frame.size.height -= lineHeight
-            boxView.frame = frame
-            
-        } else {
-            frame.size.height -= lineHeight
-            boxView.frame = frame
-            
-            frame.origin.y = frame.size.height
-            frame.size.height = lineHeight
-            lineView.frame = frame
+        lineView.frame.size = lineSize
+        var lineY: CGFloat = 0
+        if linePosition == .bottom {
+            lineY = frame.height - lineSize.height + frame.minY
         }
+        lineView.frame.origin = CGPoint(x: (frame.width - lineSize.width) / 2 + frame.minX,
+                                        y: lineY)
     }
     
 }

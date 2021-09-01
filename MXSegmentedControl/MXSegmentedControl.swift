@@ -40,19 +40,27 @@ open class MXSegmentedControl: UIControl {
     /// A Boolean value that controls whether the segmented control bounces past the edge of content and back again.
     /// If the value of this property is true, the segmented control bounces when it encounters a boundary of the content. Bouncing visually indicates that control has reached an edge of the content. If the value is false, scrolling stops immediately at the content boundary without bouncing. The default value is true.
     @IBInspectable public dynamic var bounces: Bool {
-        get { return _scrollView.bounces }
-        set { _scrollView.bounces = newValue }
+        get { return contentScrollView.bounces }
+        set { contentScrollView.bounces = newValue }
     }
     
     /// The font of the segments.
     /// If you are using styled text in iOS 6 or later, assigning a new value to this property causes the font to be applied to the entirety of the string in the attributedText property. If you want to apply the font to only a portion of the text, create a new attributed string with the desired style information and associate it with the segment. If you are not using styled text, this property applies to the entire segments string in the title property.
     /// The default value for this property is the system font at a size of 17 points (using the systemFont(ofSize:) class method of UIFont).
-    @IBInspectable public dynamic var font = UIFont.systemFont(ofSize: 17) {
+    @IBInspectable public dynamic var font: UIFont = .systemFont(ofSize: 17) {
         didSet {
             for segment in contentView.segments {
-                segment.titleLabel?.font = font
+                segment.textFont = font
             }
-            setNeedsLayout()
+        }
+    }
+    
+    /// The font of the selected segment.
+    @IBInspectable public dynamic var selectedFont: UIFont? {
+        didSet {
+            for segment in contentView.segments {
+                segment.selectedTextFont = selectedFont
+            }
         }
     }
     
@@ -80,6 +88,13 @@ open class MXSegmentedControl: UIControl {
             for segment in contentView.segments {
                 segment.width = segmentWidth
             }
+            setNeedsLayout()
+        }
+    }
+    
+    @IBInspectable public var indicatorSize: CGSize = CGSize(width: 0, height: 1) {
+        didSet {
+            guard indicatorSize != oldValue else { return }
             setNeedsLayout()
         }
     }
@@ -113,7 +128,18 @@ open class MXSegmentedControl: UIControl {
     
     /// The indicator progress.
     public var progress: CGFloat = 0 {
-        didSet { layoutIndicator() }
+        didSet {
+            guard progress != oldValue else { return }
+            layoutIndicator()
+        }
+    }
+    public var isSelectControl: Bool = false
+    
+    // set segment width to segment content width
+    public var isFitToSegmentContent: Bool = false {
+        didSet {
+            contentView.isFitToSegmentContent = isFitToSegmentContent
+        }
     }
     
     /// The currently selected segment index.
@@ -122,12 +148,13 @@ open class MXSegmentedControl: UIControl {
         didSet {
             sendActions(for: .valueChanged)
             contentView.segments[selectedIndex].isSelected = true
+            setNeedsLayout()
         }
     }
     
     // MARK: Initializers
     
-    let _scrollView = UIScrollView()
+    let contentScrollView = UIScrollView()
     let contentView = ContentView()
     
     /// :nodoc:
@@ -173,20 +200,20 @@ open class MXSegmentedControl: UIControl {
     }
     
     private func initialize() {
-        _scrollView.canCancelContentTouches = true
-        _scrollView.showsVerticalScrollIndicator = false
-        _scrollView.showsHorizontalScrollIndicator = false
+        contentScrollView.canCancelContentTouches = true
+        contentScrollView.showsVerticalScrollIndicator = false
+        contentScrollView.showsHorizontalScrollIndicator = false
         
         selectedTextColor = tintColor
         
-        _scrollView.addSubview(indicator)
-        _scrollView.addSubview(contentView)
-        addSubview(_scrollView)
+        contentScrollView.addSubview(indicator)
+        contentScrollView.addSubview(contentView)
+        addSubview(contentScrollView)
     }
     
     deinit {
         guard let scrollView = scrollView else { return }
-        scrollView.removeObserver(self, forKeyPath: keyPath, context: &context)
+        scrollView.removeObserver(self, forKeyPath: contentOffsetKeyPath, context: &context)
     }
     
     // MARK: Layout
@@ -195,21 +222,20 @@ open class MXSegmentedControl: UIControl {
     open override func layoutSubviews() {
         super.layoutSubviews()
        
-        var frame = self.bounds.inset(by: contentEdgeInsets)
-        _scrollView.frame = frame
+        var contentFrame = bounds.inset(by: contentEdgeInsets)
         
         let size = contentView.intrinsicContentSize
-        if size.width > frame.size.width {
-            frame.size.width = size.width
+        if size.width > contentFrame.size.width {
+            contentFrame.size.width = size.width
         }
         
-        contentView.setNeedsLayout()
-        contentView.frame = frame
+        contentView.frame = CGRect(origin: .zero, size: contentFrame.size)
         contentView.layoutIfNeeded()
         
-        _scrollView.contentSize = frame.size
-        _scrollView.contentInset = UIEdgeInsets.zero
-        
+        contentScrollView.frame = bounds
+        contentScrollView.contentSize = size
+        contentScrollView.contentInset = contentEdgeInsets
+
         layoutIndicator()
     }
     
@@ -218,40 +244,57 @@ open class MXSegmentedControl: UIControl {
             return
         }
         
-        let index = min(Int(progress), contentView.segments.count - 1)
-        let current = segment(at: index)!
+        let selectedIndex = min(Int(progress), contentView.segments.count - 1)
+        let selectedSegment = segment(at: selectedIndex)!
         
-        var frame = CGRect.zero
-        frame.size.height = bounds.height
+        var frame: CGRect = .zero
+        frame.size.height = bounds.height - contentEdgeInsets.top - contentEdgeInsets.bottom
         
         // Compute indicator's position
-        var x = progress < 0 ? 0 : current.frame.size.width * (progress - CGFloat(index))
+        var x = progress < 0 ? 0 : selectedSegment.frame.size.width * (progress - CGFloat(selectedIndex))
         
-        for i in 0..<index {
+        for i in 0..<selectedIndex {
             x += segment(at: i)!.frame.size.width
         }
         
-        x += CGFloat(index) * separators.inset.width
+        x += CGFloat(selectedIndex) * separators.inset.width
+        
         frame.origin.x = x
         
         // Compute indicator's width
         if progress < 0 {
-            // Bounce left
-            frame.size.width = current.frame.size.width * (progress + 1)
-            
-        } else if index + 1 < contentView.segments.count {
-            
-            let next = segment(at: index + 1)!
-            let dx = (next.frame.size.width - current.frame.size.width) * (progress - CGFloat(index))
-            frame.size.width = current.frame.size.width + dx
-            
+            // bounce left
+            frame.size.width = selectedSegment.frame.size.width * (progress + 1)
+        } else if selectedIndex + 1 < contentView.segments.count {
+            let next = segment(at: selectedIndex + 1)!
+            let dx = (next.frame.size.width - selectedSegment.frame.size.width) * (progress - CGFloat(selectedIndex))
+            frame.size.width = selectedSegment.frame.size.width + dx
         } else {
-            //bounce right
-            frame.size.width = current.frame.size.width * (CGFloat(contentView.segments.count) - progress)
+            // bounce right
+            frame.size.width = selectedSegment.frame.size.width * (CGFloat(contentView.segments.count) - progress)
         }
-        
-        indicator.frame = frame
-        _scrollView.scrollRectToVisible(frame, animated: !frame.intersects(_scrollView.bounds))
+
+        if indicatorSize.width == 0 {
+            indicator.frame = CGRect(x: frame.origin.x + ((indicatorLeft + indicatorRight) / 2),
+                                     y: frame.origin.y, width: frame.width - indicatorLeft - indicatorRight, height: frame.height)
+        } else {
+            indicator.frame = CGRect(x: frame.origin.x + frame.width / 2 - (indicatorSize.width - indicatorLeft - indicatorRight) / 2,
+                                     y: frame.origin.y, width: indicatorSize.width - indicatorLeft - indicatorRight, height: frame.height)
+        }
+                
+        var selectedCenterX = max(0, frame.origin.x - UIScreen.main.bounds.width / 2)
+        if frame.origin.x + frame.width / 2 > UIScreen.main.bounds.width / 2 {
+            selectedCenterX = max(0, frame.origin.x - UIScreen.main.bounds.width / 2 + frame.width / 2)
+        }
+        if frame.origin.x + UIScreen.main.bounds.width / 2 >= contentView.frame.width {
+            selectedCenterX = contentView.frame.width - UIScreen.main.bounds.width
+        }
+
+        if isSelectControl && contentView.frame.width > UIScreen.main.bounds.width {
+            contentScrollView.setContentOffset(CGPoint(x: selectedCenterX, y: 0), animated: !frame.intersects(contentScrollView.bounds))
+        } else {
+            contentScrollView.scrollRectToVisible(frame, animated: !frame.intersects(contentScrollView.bounds))
+        }
     }
     
     /// :nodoc:
@@ -267,18 +310,19 @@ open class MXSegmentedControl: UIControl {
     
     /// A scroll view to observe in order to move the indicator.
     @IBOutlet public weak var scrollView: UIScrollView? {
-        willSet { scrollView?.removeObserver(self, forKeyPath: keyPath, context: &context) }
-        didSet { scrollView?.addObserver(self, forKeyPath: keyPath, context: &context) }
+        willSet { scrollView?.removeObserver(self, forKeyPath: contentOffsetKeyPath, context: &context) }
+        didSet { scrollView?.addObserver(self, forKeyPath: contentOffsetKeyPath, context: &context) }
     }
     
     private var context: UInt8 = 1
-    private let keyPath = NSStringFromSelector(#selector(getter: UIScrollView.contentOffset))
+    private let contentOffsetKeyPath = NSStringFromSelector(#selector(getter: UIScrollView.contentOffset))
     
     /// :nodoc:
     open override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {
         if context == &self.context {
             
             if let scrollView = scrollView, scrollView.isDragging || scrollView.isDecelerating {
+                isSelectControl = false
                 progress = CGFloat(scrollView.contentOffset.x / scrollView.frame.size.width)
                 selectedIndex = Int(roundf( Float(progress) ))
             }
@@ -333,19 +377,25 @@ extension MXSegmentedControl {
         set { contentView.separators.color = newValue }
     }
     
+    @IBInspectable public dynamic var indicatorLineSize: CGSize {
+        get { return indicator.lineSize }
+        set { indicator.lineSize = newValue }
+    }
+    
     @IBInspectable public dynamic var indicatorLeft: CGFloat {
         get { return indicator.contentEdgeInsets.left }
-        set { indicator.contentEdgeInsets.left = newValue }
+        set {
+            indicator.contentEdgeInsets.left = newValue
+            indicator.frame.inset(by: indicator.contentEdgeInsets)
+        }
     }
     
     @IBInspectable public dynamic var indicatorRight: CGFloat {
         get { return indicator.contentEdgeInsets.right }
-        set { indicator.contentEdgeInsets.right = newValue }
-    }
-    
-    @IBInspectable public dynamic var indicatorHeight: CGFloat {
-        get { return indicator.lineHeight }
-        set { indicator.lineHeight = newValue }
+        set {
+            indicator.contentEdgeInsets.right = newValue
+            indicator.frame.inset(by: indicator.contentEdgeInsets)
+        }
     }
     
     @IBInspectable public dynamic var indicatorColor: UIColor? {
@@ -366,7 +416,6 @@ extension MXSegmentedControl {
 }
 
 // MARK: - Segment Management
-
 extension MXSegmentedControl {
     
     /// Gets the segment at the given index.
@@ -386,16 +435,14 @@ extension MXSegmentedControl {
     }
     
     public func newSegment() -> MXSegment {
-        
         let segment = MXSegment()
-        
         segment.setTitleColor(textColor, for: .normal)
         segment.setTitleColor(selectedTextColor, for: .selected)
         segment.contentEdgeInsets = segmentEdgeInsets
-        segment.titleLabel?.font = font
+        segment.textFont = font
+        segment.selectedTextFont = selectedFont
         segment.isSelected = (contentView.segments.count == selectedIndex)
         segment.addTarget(self, action: #selector(MXSegmentedControl.select(segment:)), for: .touchUpInside)
-        
         contentView.append(segment)
         return segment
     }
@@ -457,8 +504,9 @@ extension MXSegmentedControl {
     ///   - index: The segment index to be selected.
     ///   - animated: true if the selection should be animated, false if it should be immediate.
     public func select(index: Int, animated: Bool) {
+//        if selectedIndex == index { return }
         selectedIndex = index
-        
+        isSelectControl = true
         UIView.animate(withDuration: animated ? animation.duration : 0,
                        delay: animation.delay,
                        usingSpringWithDamping: animation.dampingRatio,
@@ -476,7 +524,6 @@ extension MXSegmentedControl {
 }
 
 // MARK: - Content View
-
 extension MXSegmentedControl {
     
     class ContentView: UIView {
@@ -484,6 +531,8 @@ extension MXSegmentedControl {
         var segments = [MXSegment]()
         
         var separators = Separators()
+        
+        var isFitToSegmentContent: Bool = false
         
         func append(_ segment: MXSegment) {
             guard !segments.contains(segment) else {
@@ -543,9 +592,12 @@ extension MXSegmentedControl {
             var width = frame.size.width - CGFloat(separators.layers.count) * separators.inset.width
             
             for (index, segment) in segments.enumerated() {
-                
                 var frame = CGRect.zero
-                frame.size.width = max(segment.width, width / CGFloat(self.segments.count - index))
+                if isFitToSegmentContent {
+                    frame.size.width = segment.width
+                } else {
+                    frame.size.width = max(segment.width, width / CGFloat(self.segments.count - index))
+                }
                 frame.size.height = height
                 segment.layer.frame = frame
                 
@@ -572,7 +624,6 @@ extension MXSegmentedControl {
 }
 
 // MARK: - Animation
-
 extension MXSegmentedControl {
     
     /// The indicator animation properties.
@@ -599,7 +650,6 @@ extension MXSegmentedControl {
 }
 
 // MARK: - Separators
-
 extension MXSegmentedControl {
     
     /// Segmented control seperators representation.

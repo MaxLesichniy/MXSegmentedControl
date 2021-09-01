@@ -40,7 +40,7 @@ public class MXSegment: UIButton {
     }
     
     /// The image position related to the title.
-    public var imagePosition = ImagePosition.top
+    public var imagePosition: ImagePosition = .top
     
     /// Padding between segment title and image
     public var padding: CGFloat = 8
@@ -55,6 +55,27 @@ public class MXSegment: UIButton {
     }
     
     private var _width: CGFloat = UIView.noIntrinsicMetric
+    
+    public var textFont: UIFont = .systemFont(ofSize: 17) {
+        didSet {
+            guard textFont != oldValue else { return }
+            setNeedsLayout()
+        }
+    }
+    
+    public var selectedTextFont: UIFont? {
+        didSet {
+            guard selectedTextFont != oldValue else { return }
+            setNeedsLayout()
+        }
+    }
+    
+    public override var isSelected: Bool {
+        didSet {
+            guard isSelected != oldValue else { return }
+            setNeedsLayout()
+        }
+    }
     
     @discardableResult public func set(width: CGFloat) -> MXSegment {
         self.width = width
@@ -99,12 +120,13 @@ public class MXSegment: UIButton {
 }
 
 // MARK: - Layouts
-
 extension MXSegment {
     
     /// :nodoc:
     public override func layoutSubviews() {
         super.layoutSubviews()
+        
+        titleLabel?.font = isSelected ? selectedTextFont ?? textFont : textFont
         
         guard let titleLabel = titleLabel, let imageView = imageView else {
             return
