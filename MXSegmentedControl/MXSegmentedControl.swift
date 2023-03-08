@@ -130,10 +130,12 @@ open class MXSegmentedControl: UIControl {
     public var progress: CGFloat = 0 {
         didSet {
             guard progress != oldValue else { return }
-            layoutIndicator()
+            setNeedsLayout()
         }
     }
     public var isSelectControl: Bool = false
+    
+    public var didSelect: ((Int) -> Void)?
     
     // set segment width to segment content width
     public var isFitToSegmentContent: Bool = false {
@@ -154,8 +156,8 @@ open class MXSegmentedControl: UIControl {
     
     // MARK: Initializers
     
-    let contentScrollView = UIScrollView()
-    let contentView = ContentView()
+    public let contentScrollView = UIScrollView()
+    public let contentView = ContentView()
     
     /// :nodoc:
     required public init?(coder aDecoder: NSCoder) {
@@ -449,7 +451,11 @@ extension MXSegmentedControl {
     
     @objc private func select(segment: MXSegment) {
         if let index = contentView.segments.index(of: segment) {
-            select(index: index, animated: true)
+            if let didSelect {
+                didSelect(index)
+            } else {
+                select(index: index, animated: true)
+            }
         }
     }
     
@@ -507,17 +513,23 @@ extension MXSegmentedControl {
 //        if selectedIndex == index { return }
         selectedIndex = index
         isSelectControl = true
-        UIView.animate(withDuration: animated ? animation.duration : 0,
-                       delay: animation.delay,
-                       usingSpringWithDamping: animation.dampingRatio,
-                       initialSpringVelocity: animation.velocity,
-                       options: animation.options,
-                       animations: { self.progress = CGFloat(index) })
         
         if let scrollView = scrollView {
+            UIView.animate(withDuration: animated ? animation.duration : 0,
+                           delay: animation.delay,
+                           usingSpringWithDamping: animation.dampingRatio,
+                           initialSpringVelocity: animation.velocity,
+                           options: animation.options,
+                           animations: {
+                self.progress = CGFloat(index)
+                self.layoutIfNeeded()
+            })
+            
             var contentOffset = scrollView.contentOffset
             contentOffset.x = CGFloat(index) * scrollView.frame.size.width
             scrollView.setContentOffset(contentOffset, animated: animated)
+        } else {
+            self.progress = CGFloat(index)
         }
     }
     
@@ -526,7 +538,7 @@ extension MXSegmentedControl {
 // MARK: - Content View
 extension MXSegmentedControl {
     
-    class ContentView: UIView {
+    public class ContentView: UIView {
         
         var segments = [MXSegment]()
         
@@ -572,7 +584,7 @@ extension MXSegmentedControl {
             layoutIfNeeded()
         }
         
-        override var intrinsicContentSize: CGSize {
+        public override var intrinsicContentSize: CGSize {
             get {
                 var size = CGSize(width: CGFloat(separators.layers.count) * separators.inset.width, height: UIView.noIntrinsicMetric)
                 for segment in segments {
@@ -583,7 +595,7 @@ extension MXSegmentedControl {
             }
         }
         
-        override func layoutSubviews() {
+        public override func layoutSubviews() {
             super.layoutSubviews()
             
             let segments = self.segments.sorted(by: { $0.width > $1.width })
