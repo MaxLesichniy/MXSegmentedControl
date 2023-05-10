@@ -150,6 +150,7 @@ open class MXSegmentedControl: UIControl {
         didSet {
             sendActions(for: .valueChanged)
             contentView.segments[selectedIndex].isSelected = true
+            contentView.setNeedsLayout()
             setNeedsLayout()
         }
     }
@@ -628,6 +629,12 @@ extension MXSegmentedControl {
                 frame.origin.x = separatorFrame.origin.x
                 segment.frame = frame
                 separatorFrame.origin.x += frame.size.width
+            }
+            
+            for (index, separatorLayer) in self.separators.layers.enumerated() {
+                let segment1 = self.segments[index]
+                let segment2 = self.segments[index + 1]
+                separatorLayer.isHidden = segment1.isSelected || segment2.isSelected
             }
         }
         
