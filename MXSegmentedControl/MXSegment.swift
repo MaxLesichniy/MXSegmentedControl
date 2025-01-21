@@ -60,6 +60,7 @@ public class MXSegment: UIButton {
         didSet {
             guard textFont != oldValue else { return }
             setNeedsLayout()
+            invalidateIntrinsicContentSize()
         }
     }
     
@@ -67,6 +68,7 @@ public class MXSegment: UIButton {
         didSet {
             guard selectedTextFont != oldValue else { return }
             setNeedsLayout()
+            invalidateIntrinsicContentSize()
         }
     }
     
@@ -74,6 +76,8 @@ public class MXSegment: UIButton {
         didSet {
             guard isSelected != oldValue else { return }
             setNeedsLayout()
+            layoutIfNeeded()
+            invalidateIntrinsicContentSize()
         }
     }
     
